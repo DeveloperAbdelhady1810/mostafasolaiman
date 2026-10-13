@@ -81,6 +81,40 @@ class PendingScan {
       );
 }
 
+/// One student the server refused during a bulk confirmation.
+class BulkRejection {
+  const BulkRejection(this.studentNo, this.name, this.message);
+  final int studentNo;
+  final String? name;
+  final String message;
+}
+
+/// Result of confirming a batch of Bluetooth detections.
+class BulkOutcome {
+  const BulkOutcome({
+    this.accepted = const [],
+    this.rejected = const [],
+    this.queued = const [],
+    this.alreadyPresent = const [],
+    this.failureMessage,
+  });
+
+  /// Student numbers the server verified and marked present.
+  final List<int> accepted;
+  final List<BulkRejection> rejected;
+
+  /// Saved on the phone (no connection) - will be verified later.
+  final List<int> queued;
+
+  /// Already verified earlier in this session (nothing to do).
+  final List<int> alreadyPresent;
+
+  /// Set when the whole batch failed for a reason that retrying cannot fix (e.g. the feature is off).
+  final String? failureMessage;
+
+  int get handled => accepted.length + queued.length + alreadyPresent.length;
+}
+
 enum ScanKind {
   /// Server confirmed the code (or a legacy ID code matched the roster).
   verified,

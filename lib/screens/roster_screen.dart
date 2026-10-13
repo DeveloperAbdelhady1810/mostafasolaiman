@@ -5,6 +5,7 @@ import '../providers/attendance_provider.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/student_tile.dart';
 import 'qr_scan_screen.dart';
+import 'radar_screen.dart';
 import 'student_search_screen.dart';
 import 'summary_screen.dart';
 
@@ -55,6 +56,12 @@ class _RosterScreenState extends State<RosterScreen> {
     if (marked != null && marked > 0) {
       _showSnack('$marked student${marked == 1 ? '' : 's'} marked present.');
     }
+  }
+
+  Future<void> _openRadar() async {
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const RadarScreen()));
+    if (!mounted) return;
+    setState(() {}); // the radar may have marked students present
   }
 
   Future<void> _retryPending() async {
@@ -235,6 +242,19 @@ class _RosterScreenState extends State<RosterScreen> {
                         ],
                       ),
                     ),
+                    if (attendance.bleEnabled)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.tonalIcon(
+                            key: const Key('open_radar'),
+                            onPressed: _openRadar,
+                            icon: const Icon(Icons.radar_rounded),
+                            label: const Text('Classroom Radar (Bluetooth)'),
+                          ),
+                        ),
+                      ),
                     Expanded(
                       child: attendance.roster.isEmpty
                           ? const Center(child: Text('No students expected for this course/center yet.'))

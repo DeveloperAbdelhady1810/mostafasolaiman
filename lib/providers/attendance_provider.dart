@@ -9,6 +9,7 @@ import '../models/roster_student.dart';
 import '../models/scan.dart';
 import '../services/api_client.dart';
 import '../services/api_exception.dart';
+import '../services/radar_book.dart';
 
 class AttendanceProvider extends ChangeNotifier {
   AttendanceProvider({ApiClient? api}) : _api = api ?? ApiClient();
@@ -36,6 +37,9 @@ class AttendanceProvider extends ChangeNotifier {
 
   /// Server says the rotating student codes / Bluetooth attendance are switched on.
   bool bleEnabled = false;
+
+  /// Default signal threshold for the Classroom Radar (dBm), set by the server.
+  int rssiThreshold = -75;
 
   /// Detections that could not be verified yet (no connection). Persisted.
   final List<PendingScan> pendingScans = [];
@@ -154,6 +158,8 @@ class AttendanceProvider extends ChangeNotifier {
     try {
       final result = await _api.get('/assistant/ble/features', token: token);
       bleEnabled = result['ble_enabled'] == true;
+      final t = result['rssi_threshold'];
+      if (t is num && t < 0 && t > -127) rssiThreshold = t.toInt();
       notifyListeners();
     } on ApiException {
       bleEnabled = false;
@@ -298,6 +304,92 @@ class AttendanceProvider extends ChangeNotifier {
       notifyListeners();
       return ScanFeedback(ScanKind.pending, '$label saved - will be verified when you are online.');
     }
+  }
+
+  /// Confirms students heard by the Classroom Radar. The server verifies each one's code; nobody is
+  /// marked present unless it accepts them. With no connection the batch is saved and verified later.
+  Future<BulkOutcome> confirmDetections(String token, List<Detection> detections) async {
+    final course = selectedCourse;
+    final center = selectedCenter;
+    if (course == null || center == null) {
+      return const BulkOutcome(failureMessage: 'Open a course first, then confirm.');
+    }
+
+    final already = <int>[];
+    final scans = <PendingScan>[];
+    for (final d in detections) {
+      if (_verifiedStudentNos.contains(d.studentNo)) {
+        already.add(d.studentNo);
+        continue;
+      }
+      scans.add(PendingScan(
+        courseId: course.id,
+        centerId: center.id,
+        date: _today(),
+        studentNo: d.studentNo,
+        mac: d.macHex,
+        detectedAt: d.detectedAt,
+        method: 'ble',
+        rssi: d.rssi,
+      ));
+    }
+
+    final accepted = <int>[];
+    final rejected = <BulkRejection>[];
+    final queued = <int>[];
+    String? failure;
+
+    for (var i = 0; i < scans.length; i += _bulkChunk) {
+      final chunk = scans.sublist(i, i + _bulkChunk > scans.length ? scans.length : i + _bulkChunk);
+      try {
+        final result = await _sendBulk(chunk, token);
+        _applyBulkResult(chunk, result);
+        for (final a in ((result['accepted'] as List?) ?? const []).whereType<Map>()) {
+          accepted.add((a['student_no'] as num).toInt());
+        }
+        for (final r in ((result['rejected'] as List?) ?? const []).whereType<Map>()) {
+          final no = (r['student_no'] as num).toInt();
+          rejected.add(BulkRejection(
+            no,
+            roster.where((s) => s.studentNumber == no).firstOrNull?.name,
+            _rejectMessage((r['reason'] ?? '').toString(), no),
+          ));
+        }
+      } on ApiException catch (e) {
+        if (_cannotEverVerify(e)) {
+          if (e.statusCode == 403) bleEnabled = false;
+          failure = e.statusCode == 403 ? 'Secure codes are not enabled for this course yet.' : e.message;
+          break;
+        }
+        queued.addAll(await _queueForLater(chunk)); // server hiccup: keep them and retry later
+      } catch (_) {
+        queued.addAll(await _queueForLater(chunk)); // no connection
+      }
+    }
+
+    await _savePending();
+    notifyListeners();
+    return BulkOutcome(
+      accepted: accepted,
+      rejected: rejected,
+      queued: queued,
+      alreadyPresent: already,
+      failureMessage: failure,
+    );
+  }
+
+  /// Saves scans that could not be sent yet and shows those students as present-but-unverified.
+  Future<List<int>> _queueForLater(List<PendingScan> scans) async {
+    for (final s in scans) {
+      pendingScans.removeWhere((p) => p.studentNo == s.studentNo && p.groupKey == s.groupKey);
+      pendingScans.add(s);
+      final student = roster.where((r) => r.studentNumber == s.studentNo).firstOrNull;
+      if (student != null && _isCurrentRoster(s)) {
+        student.status = 'present';
+        unverifiedStudentIds.add(student.id);
+      }
+    }
+    return scans.map((s) => s.studentNo).toList();
   }
 
   /// 403 (not allowed / feature off), 404 or 422: retrying the same request can never succeed.

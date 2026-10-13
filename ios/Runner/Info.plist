@@ -47,5 +47,9 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Attendance Assistant uses the camera to scan a student's QR code and mark them present.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Attendance Assistant uses Bluetooth to detect the students' phones in the classroom and mark them present.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>Attendance Assistant uses Bluetooth to tell students' phones that their attendance was detected.</string>
 </dict>
 </plist>

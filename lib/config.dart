@@ -1,7 +1,8 @@
 /// Base URL for mostafa-solaiman.online's API. Change this if pointing the
 /// app at a different teacher's platform (the same /api/assistant/* surface
 /// exists identically on every LearnQuad-lineage platform on this account).
-const String apiBaseUrl = 'https://mostafa-solaiman.online/api';
+/// Overridable at build time for test builds: `--dart-define=API_BASE=http://10.0.2.2:8765/api`.
+const String apiBaseUrl = String.fromEnvironment('API_BASE', defaultValue: 'https://mostafa-solaiman.online/api');
 
 /// Prefix every generated student QR code starts with (see
 /// resources/views/student/dashboard.blade.php on the web platform:
