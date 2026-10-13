@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io' show HttpDate;
 import 'package:http/http.dart' as http;
 import '../config.dart';
 import 'api_exception.dart';
@@ -8,6 +9,27 @@ import 'api_exception.dart';
 /// call rather than this class holding one, so AuthProvider stays the single
 /// source of truth for the current session.
 class ApiClient {
+  ApiClient({http.Client? client}) : _client = client ?? http.Client();
+
+  final http.Client _client;
+
+  /// server clock - this phone's clock, in seconds, learnt from the HTTP `Date`
+  /// header of every response. Rotating student codes are checked against the
+  /// SERVER's time, so a detection time must not depend on a wrong phone clock.
+  static int serverOffsetSeconds = 0;
+
+  /// Current time as the server sees it (unix seconds).
+  static int serverNow() => DateTime.now().millisecondsSinceEpoch ~/ 1000 + serverOffsetSeconds;
+
+  static void _learnServerClock(http.Response response) {
+    final date = response.headers['date'];
+    if (date == null) return;
+    try {
+      final server = HttpDate.parse(date).millisecondsSinceEpoch ~/ 1000;
+      serverOffsetSeconds = server - DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    } catch (_) {}
+  }
+
   Uri _uri(String path, [Map<String, String>? query]) {
     return Uri.parse('$apiBaseUrl$path').replace(queryParameters: query);
   }
@@ -19,6 +41,7 @@ class ApiClient {
       };
 
   dynamic _decode(http.Response response) {
+    _learnServerClock(response);
     Map<String, dynamic> body = {};
     try {
       body = jsonDecode(response.body) as Map<String, dynamic>;
@@ -37,12 +60,12 @@ class ApiClient {
   }
 
   Future<dynamic> get(String path, {String? token, Map<String, String>? query}) async {
-    final response = await http.get(_uri(path, query), headers: _headers(token));
+    final response = await _client.get(_uri(path, query), headers: _headers(token));
     return _decode(response);
   }
 
   Future<dynamic> post(String path, {String? token, Map<String, dynamic>? body}) async {
-    final response = await http.post(
+    final response = await _client.post(
       _uri(path),
       headers: _headers(token),
       body: body != null ? jsonEncode(body) : null,
@@ -51,7 +74,7 @@ class ApiClient {
   }
 
   Future<dynamic> put(String path, {String? token, Map<String, dynamic>? body}) async {
-    final response = await http.put(
+    final response = await _client.put(
       _uri(path),
       headers: _headers(token),
       body: body != null ? jsonEncode(body) : null,

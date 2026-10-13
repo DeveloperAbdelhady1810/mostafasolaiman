@@ -26,11 +26,22 @@ Change the API target in `lib/config.dart` if you ever point this at a different
 
 ## Test account
 
-A QA test assistant account exists on production for trying the app:
-- Email: `qa-test-assistant@example.com`
-- Password: `TestAssist123!`
+A QA test assistant account exists on production for trying the app. Its credentials are deliberately **not** kept in this repo (the repo is public); ask the platform owner for them. Delete the account (and its `assistant_profiles` row) once real assistant accounts exist for actual staff, or keep it for future testing.
 
-Delete it (and its `assistant_profiles` row) once you've set up real assistant accounts for actual staff, or keep it around for future testing — your call.
+## Scanning student codes
+
+The scanner stays open so a whole line of students can be scanned without reopening the camera; each scan gives a
+banner and a haptic tick, and "Done" returns to the roster.
+
+- **Rotating codes** (new Mostafa Solaiman student app): `MSQ1:{student_no}:{counter}:{mac}`, changes every 30 s.
+  The phone cannot check it (the secret never leaves the student's phone), so each scan is verified by the server
+  through `POST /api/assistant/attendance/bulk`; only verified students are marked present, and the student gets an
+  "attendance recorded" push. If the phone is offline the scan is queued (and shown as "Waiting to be verified"),
+  sent when the connection is back, and always flushed before Submit. Detection times use the server's clock
+  (learnt from the HTTP `Date` header), so a wrong phone clock does not break verification.
+- **Old static ID codes** (`LQ-000123`): still accepted exactly as before, matched against the roster.
+- The feature is controlled by the server (`GET /api/assistant/ble/features`); while it is off, rotating codes are refused
+  with a clear message and the old flow is unchanged.
 
 ## What's not done yet
 

@@ -10,11 +10,15 @@ class StudentTile extends StatelessWidget {
   final int? quizMaxMark;
   final VoidCallback onChanged;
 
+  /// Marked present from a scan that has not been verified by the server yet (offline).
+  final bool unverified;
+
   const StudentTile({
     super.key,
     required this.student,
     required this.quizMaxMark,
     required this.onChanged,
+    this.unverified = false,
   });
 
   @override
@@ -47,6 +51,9 @@ class StudentTile extends StatelessWidget {
                       if (student.studentNumber != null)
                         Text('#${student.studentNumber}',
                             style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                      if (unverified)
+                        Text('Waiting to be verified',
+                            style: TextStyle(fontSize: 12, color: Colors.amber.shade900, fontWeight: FontWeight.w600)),
                     ],
                   ),
                 ),
