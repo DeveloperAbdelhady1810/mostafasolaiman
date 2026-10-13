@@ -43,6 +43,25 @@ banner and a haptic tick, and "Done" returns to the roster.
 - The feature is controlled by the server (`GET /api/assistant/ble/features`); while it is off, rotating codes are refused
   with a clear message and the old flow is unchanged.
 
+## Classroom Radar (Bluetooth)
+
+When the server has the feature on (`GET /api/assistant/ble/features`), the roster screen shows **Classroom Radar**.
+Students' phones broadcast their rotating code over Bluetooth for 60 s after opening the student app; the radar lists
+everyone in range (name from the roster, signal bars, one tick + vibration per new student), you can untick anyone
+detected by mistake (e.g. through a wall), adjust the range slider (default -75 dBm, from the server), and **Confirm**
+sends them to `POST /api/assistant/attendance/bulk` (`method=ble`, with the signal strength). Only students the server
+verifies are marked present; rejections are listed with a reason and can still be added with Scan QR / Add Walk-in.
+Offline confirmations are saved, shown as "Waiting to be verified" and sent before Submit.
+
+Each detected student is answered with a short Bluetooth "I heard you" reply (the student's phone then plays its tick):
+one reply at a time, up to 3 per student per broadcast, 8 s apart, in case the first one is missed.
+
+- Android 11 and older: Bluetooth scanning needs Location permission and Location switched on. Android 12+ / iOS: just
+  the Bluetooth ("Nearby devices") permission.
+- A student phone's signal strength is a hint (about +-10 dB between phones), not proof; the assistant still counts the
+  class. Fake packets can only produce a rejected entry, never a present student.
+- Test builds against a local mock server (never ship these): `--dart-define=API_BASE=http://10.0.2.2:8765/api`.
+
 ## What's not done yet
 
 - **iOS build/signing**: the project is structured for iOS (`ios/` platform folder, camera permission string) but was only ever compiled for Android on this Windows machine — no Mac/Xcode available here. Building and signing for TestFlight/App Store needs a Mac with Xcode and an Apple Developer account.

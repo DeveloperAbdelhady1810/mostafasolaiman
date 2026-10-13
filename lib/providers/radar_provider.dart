@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../models/scan.dart';
 import '../services/ble_scanner.dart';
 import '../services/radar_book.dart';
+import '../services/reply_queue.dart';
 
 enum RadarStatus { idle, starting, scanning, needsPermission, bluetoothOff, unsupported, error }
 
@@ -15,6 +16,7 @@ class RadarProvider extends ChangeNotifier {
     required int Function() serverNow,
     this.threshold = -75,
     RadarBook? book,
+    this.replies,
   })  : _scanner = scanner,
         _serverNow = serverNow,
         book = book ?? RadarBook();
@@ -22,6 +24,9 @@ class RadarProvider extends ChangeNotifier {
   final BleScanner _scanner;
   final int Function() _serverNow;
   final RadarBook book;
+
+  /// Answers each student in range with a Bluetooth "I heard you" (null = no replies).
+  final ReplyQueue? replies;
 
   /// Students whose signal is weaker than this (dBm) are ignored. Higher (closer to 0) = must be nearer.
   int threshold;
@@ -98,6 +103,8 @@ class RadarProvider extends ChangeNotifier {
       final fresh = book.onAdvert(uuid, advert.rssi, _serverNow(), threshold: threshold);
       changed = true;
       if (fresh != null) onNewDetection?.call(fresh);
+      final seen = book.lastTouched;
+      if (seen != null && seen.bestRssi > threshold) replies?.maybeReply(seen.studentNo, seen.macHex);
     }
     if (changed) _notify();
   }
@@ -135,6 +142,7 @@ class RadarProvider extends ChangeNotifier {
     _advertSub?.cancel();
     _stateSub?.cancel();
     unawaited(_scanner.stop());
+    unawaited(replies?.dispose() ?? Future<void>.value());
     super.dispose();
   }
 }

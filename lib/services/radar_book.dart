@@ -36,6 +36,9 @@ class RadarBook {
 
   final Map<int, Detection> _all = {};
 
+  /// The student the most recent valid advertisement belonged to (null if it was not one of ours).
+  Detection? lastTouched;
+
   Iterable<Detection> get all => _all.values;
   Detection? byStudentNo(int no) => _all[no];
   int get totalSeen => _all.length;
@@ -43,6 +46,7 @@ class RadarBook {
   /// Feeds one received advertisement. Returns the [Detection] when this advert made the student
   /// newly count as in the room (first time their signal passes [threshold]); otherwise null.
   Detection? onAdvert(String serviceUuid, int rssi, int serverNow, {required int threshold, DateTime? now}) {
+    lastTouched = null;
     final packet = BlePacket.parse(serviceUuid);
     if (packet == null || packet.isReply) return null; // other devices, or an assistant's reply
 
@@ -69,6 +73,7 @@ class RadarBook {
       d.lastSeen = at;
     }
 
+    lastTouched = d;
     final isIn = d.bestRssi > threshold;
     return (!wasIn && isIn && !d.confirmed) ? d : null;
   }

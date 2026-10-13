@@ -7,15 +7,18 @@ import '../providers/auth_provider.dart';
 import '../providers/radar_provider.dart';
 import '../services/api_client.dart';
 import '../services/ble_scanner.dart';
+import '../services/reply_advertiser.dart';
+import '../services/reply_queue.dart';
 import '../services/radar_book.dart';
 
 /// Classroom Radar: students' phones broadcast their rotating code over Bluetooth; this screen lists
 /// everyone in range so the whole class can be confirmed at once instead of scanning one by one.
 class RadarScreen extends StatefulWidget {
-  const RadarScreen({super.key, this.scanner});
+  const RadarScreen({super.key, this.scanner, this.replyAdvertiser});
 
   /// Injectable for tests.
   final BleScanner? scanner;
+  final ReplyAdvertiser? replyAdvertiser;
 
   @override
   State<RadarScreen> createState() => _RadarScreenState();
@@ -33,6 +36,7 @@ class _RadarScreenState extends State<RadarScreen> {
       scanner: widget.scanner ?? PlusScanner(),
       serverNow: ApiClient.serverNow,
       threshold: attendance.rssiThreshold,
+      replies: ReplyQueue(widget.replyAdvertiser ?? PluginReplyAdvertiser()),
     )..onNewDetection = (_) {
         HapticFeedback.mediumImpact();
         SystemSound.play(SystemSoundType.click);
