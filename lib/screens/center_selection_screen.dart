@@ -4,6 +4,7 @@ import '../models/center.dart';
 import '../providers/attendance_provider.dart';
 import '../providers/auth_provider.dart';
 import 'course_list_screen.dart';
+import 'zoom_home_screen.dart';
 
 class CenterSelectionScreen extends StatefulWidget {
   const CenterSelectionScreen({super.key});
@@ -43,6 +44,13 @@ class _CenterSelectionScreenState extends State<CenterSelectionScreen> {
       appBar: AppBar(
         title: const Text('Choose a Center'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.videocam),
+            tooltip: 'Zoom students',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const ZoomHomeScreen()),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'Sign out',

@@ -20,6 +20,13 @@ class RosterStudent {
   /// (e.g. to visually flag them), the backend doesn't need to know.
   bool isWalkIn;
 
+  /// Zoom-only: a visitor from another group attending as a makeup, a member
+  /// who already attended this lesson in another group's session, and the
+  /// student's own group name (shown in the makeup search results).
+  bool isMakeup;
+  bool attendedElsewhere;
+  String? groupName;
+
   RosterStudent({
     required this.id,
     required this.name,
@@ -31,6 +38,9 @@ class RosterStudent {
     this.homeworkDone,
     this.quizMark,
     this.isWalkIn = false,
+    this.isMakeup = false,
+    this.attendedElsewhere = false,
+    this.groupName,
   });
 
   factory RosterStudent.fromJson(Map<String, dynamic> json) {
@@ -44,6 +54,9 @@ class RosterStudent {
       status: (json['status'] as String?) ?? 'absent',
       homeworkDone: json['homework_done'] as bool?,
       quizMark: json['quiz_mark'] as int?,
+      isMakeup: json['is_makeup'] == true || json['is_makeup'] == 1,
+      attendedElsewhere: json['attended_elsewhere'] == true,
+      groupName: json['group_name'] as String?,
     );
   }
 
