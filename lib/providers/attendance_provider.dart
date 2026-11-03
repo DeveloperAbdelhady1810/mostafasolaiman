@@ -551,6 +551,8 @@ class AttendanceProvider extends ChangeNotifier {
     } catch (_) {}
   }
 
+  String get sessionDate => _today();
+
   String _today() => DateTime.now().toIso8601String().split('T').first;
 
   // ───────────────────────────── quiz / submit ────────────────────────────

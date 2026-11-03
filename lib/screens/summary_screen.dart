@@ -1,9 +1,66 @@
 import 'package:flutter/material.dart';
+import '../services/api_client.dart';
+import 'raqmee_send_screen.dart';
 
 class SummaryScreen extends StatelessWidget {
   final Map<String, dynamic> result;
+  // Only set for in-center sessions; the WhatsApp button is hidden when there is no token (e.g. Zoom).
+  final String? token;
+  final String courseTitle;
+  final int courseId;
+  final String? centerName;
+  final int centerId;
+  final String date;
 
-  const SummaryScreen({super.key, required this.result});
+  const SummaryScreen({
+    super.key,
+    required this.result,
+    this.token,
+    this.courseTitle = '',
+    this.courseId = 0,
+    this.centerName,
+    this.centerId = 0,
+    this.date = '',
+  });
+
+  void _openWhatsapp(BuildContext context) {
+    final api = ApiClient();
+    final token = this.token!;
+    final parents = (result['parent_summaries'] as List? ?? [])
+        .map((e) => RaqmeeRecipient(
+              name: (e['name'] ?? '') as String,
+              phone: e['parent_phone'] as String?,
+              status: (e['status'] ?? 'absent') as String,
+            ))
+        .toList();
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => RaqmeeSendScreen(
+        recipients: parents,
+        courseTitle: courseTitle,
+        date: date,
+        centerName: centerName,
+        sessionKey: '$courseId-$centerId-$date',
+        loadTemplates: () async {
+          final d = await api.get('/assistant/whatsapp/templates', token: token) as Map<String, dynamic>;
+          return (d['templates'] as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        },
+        sendCampaign: ({required templateId, required sessionKey, required title, required recipients, required variables}) async {
+          final d = await api.post('/assistant/whatsapp/campaign', token: token, body: {
+            'template_id': templateId,
+            'session_key': sessionKey,
+            'title': title,
+            'recipients': recipients,
+            'variables': variables,
+          });
+          return Map<String, dynamic>.from(d as Map);
+        },
+        campaignStatus: (id) async {
+          final d = await api.get('/assistant/whatsapp/campaigns/$id', token: token);
+          return Map<String, dynamic>.from(d as Map);
+        },
+      ),
+    ));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -33,6 +90,18 @@ class SummaryScreen extends StatelessWidget {
               ],
             ),
             const Spacer(),
+            if (token != null) ...[
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: OutlinedButton.icon(
+                  onPressed: () => _openWhatsapp(context),
+                  icon: const Icon(Icons.verified_rounded),
+                  label: const Text('Send WhatsApp to parents (official)'),
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
             SizedBox(
               width: double.infinity,
               height: 50,
