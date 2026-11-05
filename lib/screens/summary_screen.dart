@@ -31,6 +31,8 @@ class SummaryScreen extends StatelessWidget {
               name: (e['name'] ?? '') as String,
               phone: e['parent_phone'] as String?,
               status: (e['status'] ?? 'absent') as String,
+              homeworkDone: e['homework_done'] as bool?,
+              quizMark: e['quiz_mark'],
             ))
         .toList();
     Navigator.of(context).push(MaterialPageRoute(
@@ -44,15 +46,27 @@ class SummaryScreen extends StatelessWidget {
           final d = await api.get('/assistant/whatsapp/templates', token: token) as Map<String, dynamic>;
           return (d['templates'] as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
         },
-        sendCampaign: ({required templateId, required sessionKey, required title, required recipients, required variables}) async {
+        sendCampaign: ({required templateId, required sessionKey, required title, required recipients, required context, required variables}) async {
           final d = await api.post('/assistant/whatsapp/campaign', token: token, body: {
             'template_id': templateId,
             'session_key': sessionKey,
             'title': title,
             'recipients': recipients,
+            'context': context,
             'variables': variables,
           });
           return Map<String, dynamic>.from(d as Map);
+        },
+        sendPerson: ({required templateId, required senderId, required sessionKey, required phone, required student, required context, required variables}) async {
+          await api.post('/assistant/whatsapp/send-one', token: token, body: {
+            'template_id': templateId,
+            'sender_id': senderId,
+            'session_key': sessionKey,
+            'phone': phone,
+            'student': student,
+            'context': context,
+            'variables': variables,
+          });
         },
         campaignStatus: (id) async {
           final d = await api.get('/assistant/whatsapp/campaigns/$id', token: token);
