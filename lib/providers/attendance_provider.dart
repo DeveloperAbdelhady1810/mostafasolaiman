@@ -9,6 +9,7 @@ import '../models/roster_student.dart';
 import '../models/scan.dart';
 import '../services/api_client.dart';
 import '../services/api_exception.dart';
+import '../services/local_store.dart';
 import '../services/radar_book.dart';
 
 class AttendanceProvider extends ChangeNotifier {
@@ -33,6 +34,16 @@ class AttendanceProvider extends ChangeNotifier {
   bool isLoading = false;
   String? error;
 
+  /// True when the roster on screen came from this phone (the server could not be reached).
+  bool isOffline = false;
+
+  /// Day of the session being taken (today, or an unsubmitted earlier day that was reopened).
+  String? _rosterDate;
+
+  /// Marks are written to the phone only while a roster is loaded and not yet submitted.
+  bool _rosterReady = false;
+  Timer? _saveTimer;
+
   // ── rotating-code scanning ────────────────────────────────────────────────
 
   /// Server says the rotating student codes / Bluetooth attendance are switched on.
@@ -54,6 +65,58 @@ class AttendanceProvider extends ChangeNotifier {
   static const _pendingKey = 'pending_scans';
   static const _bulkChunk = 300; // server limit per request
 
+  @override
+  void notifyListeners() {
+    super.notifyListeners();
+    _scheduleSave();
+  }
+
+  @override
+  void dispose() {
+    _saveTimer?.cancel();
+    super.dispose();
+  }
+
+  void _scheduleSave() {
+    if (!_rosterReady) return;
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(milliseconds: 400), persistNow);
+  }
+
+  /// Writes every mark to the phone right now (called after each edit and when the app is paused).
+  Future<void> persistNow() async {
+    _saveTimer?.cancel();
+    final course = selectedCourse;
+    final center = selectedCenter;
+    if (!_rosterReady || course == null || center == null || _rosterDate == null || roster.isEmpty) return;
+    await LocalStore.saveRoster(course.id, center.id, _rosterDate!, roster);
+  }
+
+  /// Server roster + what this phone already holds for the same session: the phone's marks and
+  /// walk-ins are kept, students new on the server are added.
+  List<RosterStudent> _mergeWithLocal(List<RosterStudent> fresh, List<RosterStudent>? local) {
+    if (local == null || local.isEmpty) return fresh;
+    final localById = {for (final s in local) s.id: s};
+    return [
+      for (final s in fresh) localById.remove(s.id) ?? s,
+      ...localById.values.where((s) => s.isWalkIn),
+    ];
+  }
+
+  Future<Map<String, dynamic>> _getCached(String cacheKey, String path, String token, {Map<String, String>? query}) async {
+    try {
+      final result = Map<String, dynamic>.from(await _api.get(path, token: token, query: query) as Map);
+      await LocalStore.saveCache(cacheKey, result);
+      return result;
+    } on ApiException {
+      rethrow;
+    } catch (_) {
+      final cached = await LocalStore.loadCache(cacheKey);
+      if (cached == null) throw const _NoCache();
+      return cached;
+    }
+  }
+
   void _setLoading(bool value) {
     isLoading = value;
     notifyListeners();
@@ -68,14 +131,14 @@ class AttendanceProvider extends ChangeNotifier {
     _setLoading(true);
     error = null;
     try {
-      final result = await _api.get('/assistant/centers', token: token);
+      final result = await _getCached('centers', '/assistant/centers', token);
       centers = (result['centers'] as List)
           .map((c) => AttendanceCenter.fromJson(c as Map<String, dynamic>))
           .toList();
       _setLoading(false);
       return true;
     } catch (e) {
-      error = e is ApiException ? e.message : 'Could not load centers.';
+      error = e is ApiException ? e.message : 'No connection, and the centers were never loaded on this phone yet.';
       _setLoading(false);
       return false;
     }
@@ -85,7 +148,7 @@ class AttendanceProvider extends ChangeNotifier {
     _setLoading(true);
     error = null;
     try {
-      final result = await _api.get('/assistant/filters', token: token);
+      final result = await _getCached('filters', '/assistant/filters', token);
       stages = (result['stages'] as List)
           .map((s) => FilterOption.fromJson(s as Map<String, dynamic>))
           .toList();
@@ -95,7 +158,7 @@ class AttendanceProvider extends ChangeNotifier {
       _setLoading(false);
       return true;
     } catch (e) {
-      error = e is ApiException ? e.message : 'Could not load filters.';
+      error = e is ApiException ? e.message : 'No connection, and the filters were never loaded on this phone yet.';
       _setLoading(false);
       return false;
     }
@@ -105,47 +168,98 @@ class AttendanceProvider extends ChangeNotifier {
     _setLoading(true);
     error = null;
     try {
-      final result = await _api.get('/assistant/courses', token: token, query: {
-        if (selectedStage != null) 'stage': selectedStage!,
-        if (selectedGrade != null) 'grade': selectedGrade!,
-        if (selectedCenter != null) 'center_id': selectedCenter!.id.toString(),
-      });
+      final result = await _getCached(
+        'courses_${selectedCenter?.id}_${selectedStage ?? ''}_${selectedGrade ?? ''}',
+        '/assistant/courses',
+        token,
+        query: {
+          if (selectedStage != null) 'stage': selectedStage!,
+          if (selectedGrade != null) 'grade': selectedGrade!,
+          if (selectedCenter != null) 'center_id': selectedCenter!.id.toString(),
+        },
+      );
       courses = (result['courses'] as List)
           .map((c) => AttendanceCourse.fromJson(c as Map<String, dynamic>))
           .toList();
       _setLoading(false);
       return true;
     } catch (e) {
-      error = e is ApiException ? e.message : 'Could not load courses.';
+      error = e is ApiException ? e.message : 'No connection, and these courses were never loaded on this phone yet.';
       _setLoading(false);
       return false;
     }
   }
 
-  Future<bool> loadRoster(String token, AttendanceCourse course) async {
+  /// [resumeDate]: reopen a session started on an earlier day that was never submitted.
+  Future<bool> loadRoster(String token, AttendanceCourse course, {String? resumeDate}) async {
     if (selectedCenter == null) return false;
-    _setLoading(true);
     error = null;
     selectedCourse = course;
-    try {
-      final today = _today();
-      final result = await _api.get(
-        '/assistant/courses/${course.id}/roster',
-        token: token,
-        query: {'center_id': selectedCenter!.id.toString(), 'date': today},
-      );
-      roster = (result['students'] as List)
-          .map((s) => RosterStudent.fromJson(s as Map<String, dynamic>))
-          .toList();
-      sessionId = result['session_id'] as int?;
-      sessionStatus = result['session_status'] as String?;
+    _rosterReady = false;
+    _rosterDate = resumeDate ?? _today();
+    final centerId = selectedCenter!.id;
+    final date = _rosterDate!;
+
+    // Reopening after the app was closed: show what the phone holds right away
+    // (no waiting on the network), then refresh behind it.
+    final saved = resumeDate == null ? null : await LocalStore.loadRoster(course.id, centerId, date);
+    if (saved != null) {
+      roster = saved;
+      sessionId = null;
+      sessionStatus = null;
+      isOffline = true;
       _verifiedStudentNos.clear();
       unverifiedStudentIds.clear();
       await _ensurePendingLoaded();
       _restorePendingOntoRoster();
+      isLoading = false;
+      notifyListeners();
+    } else {
+      _setLoading(true);
+    }
+
+    try {
+      final result = await _api.get(
+        '/assistant/courses/${course.id}/roster',
+        token: token,
+        query: {'center_id': centerId.toString(), 'date': date},
+      );
+      final fresh = (result['students'] as List)
+          .map((s) => RosterStudent.fromJson(s as Map<String, dynamic>))
+          .toList();
+      // Work already marked on this phone for this session and not submitted yet
+      // wins over the server's copy.
+      roster = _mergeWithLocal(fresh, await LocalStore.loadRoster(course.id, centerId, date));
+      sessionId = result['session_id'] as int?;
+      sessionStatus = result['session_status'] as String?;
+      isOffline = false;
+      _verifiedStudentNos.clear();
+      unverifiedStudentIds.clear();
+      await _ensurePendingLoaded();
+      _restorePendingOntoRoster();
+      _rosterReady = true;
+      await LocalStore.saveRoster(course.id, centerId, date, roster);
+      await _saveSession();
       _setLoading(false);
       return true;
     } catch (e) {
+      // Server unreachable: continue from what this phone holds for this exact course/center/day.
+      final local = saved ?? (e is ApiException ? null : await LocalStore.loadRoster(course.id, centerId, date));
+      if (local != null) {
+        roster = local;
+        sessionId = null;
+        sessionStatus = null;
+        isOffline = true;
+        error = null;
+        _verifiedStudentNos.clear();
+        unverifiedStudentIds.clear();
+        await _ensurePendingLoaded();
+        _restorePendingOntoRoster();
+        _rosterReady = true;
+        await _saveSession();
+        _setLoading(false);
+        return true;
+      }
       error = e is ApiException ? e.message : 'Could not load the roster.';
       _setLoading(false);
       return false;
@@ -269,7 +383,7 @@ class AttendanceProvider extends ChangeNotifier {
     final scan = PendingScan(
       courseId: course.id,
       centerId: center.id,
-      date: _today(),
+      date: _sessionDate(),
       studentNo: code.studentNo,
       mac: code.mac,
       detectedAt: ApiClient.serverNow(),
@@ -325,7 +439,7 @@ class AttendanceProvider extends ChangeNotifier {
       scans.add(PendingScan(
         courseId: course.id,
         centerId: center.id,
-        date: _today(),
+        date: _sessionDate(),
         studentNo: d.studentNo,
         mac: d.macHex,
         detectedAt: d.detectedAt,
@@ -456,7 +570,7 @@ class AttendanceProvider extends ChangeNotifier {
   }
 
   bool _isCurrentRoster(PendingScan s) =>
-      s.courseId == selectedCourse?.id && s.centerId == selectedCenter?.id && s.date == _today();
+      s.courseId == selectedCourse?.id && s.centerId == selectedCenter?.id && s.date == _sessionDate();
 
   void _markVerified(int studentId, int studentNo, String name) {
     _verifiedStudentNos.add(studentNo);
@@ -551,9 +665,45 @@ class AttendanceProvider extends ChangeNotifier {
     } catch (_) {}
   }
 
-  String get sessionDate => _today();
-
   String _today() => DateTime.now().toIso8601String().split('T').first;
+
+  String _sessionDate() => _rosterDate ?? _today();
+
+  /// Date (yyyy-MM-dd) of the session being taken - used by the WhatsApp-after-submit screen.
+  String get sessionDate => _sessionDate();
+
+  /// Remembers which session is open, so reopening the app lands back in it.
+  Future<void> _saveSession() async {
+    final center = selectedCenter;
+    final course = selectedCourse;
+    if (center == null || course == null || _rosterDate == null) return;
+    await LocalStore.saveSession({
+      'center': center.toJson(),
+      'course': course.toJson(),
+      'stage': selectedStage,
+      'grade': selectedGrade,
+      'date': _rosterDate,
+    });
+  }
+
+  Future<void> clearSavedSession() => LocalStore.clearSession();
+
+  /// Puts the center/course selection back from the saved session and returns it
+  /// (null when there is none). The caller then opens the roster screen.
+  Future<({AttendanceCourse course, String date})?> restoreSavedSession() async {
+    try {
+      final m = await LocalStore.loadSession();
+      if (m == null) return null;
+      selectedCenter = AttendanceCenter.fromJson(m['center'] as Map<String, dynamic>);
+      selectedStage = m['stage'] as String?;
+      selectedGrade = m['grade'] as String?;
+      final course = AttendanceCourse.fromJson(m['course'] as Map<String, dynamic>);
+      notifyListeners();
+      return (course: course, date: m['date'] as String);
+    } catch (_) {
+      return null;
+    }
+  }
 
   // ───────────────────────────── quiz / submit ────────────────────────────
 
@@ -586,20 +736,25 @@ class AttendanceProvider extends ChangeNotifier {
         return null;
       }
 
-      final today = _today();
+      final date = _sessionDate();
       final result = await _api.post(
         '/assistant/courses/${selectedCourse!.id}/submit',
         token: token,
         body: {
           'center_id': selectedCenter!.id,
-          'date': today,
+          'date': date,
           'records': roster.map((s) => s.toRecordJson()).toList(),
         },
       );
+      // Safely on the server now: stop keeping a copy on the phone.
+      _rosterReady = false;
+      _saveTimer?.cancel();
+      await LocalStore.clearRoster(selectedCourse!.id, selectedCenter!.id, date);
+      await clearSavedSession();
       _setLoading(false);
       return result as Map<String, dynamic>;
     } catch (e) {
-      error = e is ApiException ? e.message : 'Could not submit attendance.';
+      error = e is ApiException ? e.message : 'No connection. Your attendance is safe on this phone - submit once you are online.';
       _setLoading(false);
       return null;
     }
@@ -613,6 +768,10 @@ class AttendanceProvider extends ChangeNotifier {
   }
 
   void resetRoster() {
+    _rosterReady = false;
+    _saveTimer?.cancel();
+    _rosterDate = null;
+    isOffline = false;
     roster = [];
     selectedCourse = null;
     sessionId = null;
@@ -621,4 +780,9 @@ class AttendanceProvider extends ChangeNotifier {
     unverifiedStudentIds.clear();
     notifyListeners();
   }
+}
+
+/// Offline and nothing saved on the phone yet for this list.
+class _NoCache implements Exception {
+  const _NoCache();
 }

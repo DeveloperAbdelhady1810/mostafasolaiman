@@ -19,6 +19,17 @@ class AttendanceCourse {
     this.expectedCount = 0,
   });
 
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'title': title,
+        'stage': stage,
+        'grade': grade,
+        'division': division,
+        'subject': subject,
+        'quiz_max_mark': quizMaxMark,
+        'expected_count': expectedCount,
+      };
+
   factory AttendanceCourse.fromJson(Map<String, dynamic> json) {
     return AttendanceCourse(
       id: json['id'] as int,

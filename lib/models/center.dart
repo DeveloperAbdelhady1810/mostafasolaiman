@@ -5,6 +5,8 @@ class AttendanceCenter {
 
   AttendanceCenter({required this.id, required this.name, this.address});
 
+  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'address': address};
+
   factory AttendanceCenter.fromJson(Map<String, dynamic> json) {
     return AttendanceCenter(
       id: json['id'] as int,

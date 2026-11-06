@@ -12,7 +12,10 @@ import 'summary_screen.dart';
 class RosterScreen extends StatefulWidget {
   final AttendanceCourse course;
 
-  const RosterScreen({super.key, required this.course});
+  /// Set when the app reopens an unsubmitted session from an earlier day.
+  final String? resumeDate;
+
+  const RosterScreen({super.key, required this.course, this.resumeDate});
 
   @override
   State<RosterScreen> createState() => _RosterScreenState();
@@ -20,11 +23,21 @@ class RosterScreen extends StatefulWidget {
 
 class _RosterScreenState extends State<RosterScreen> {
   bool _submitting = false;
+  late final AttendanceProvider _attendance;
 
   @override
   void initState() {
     super.initState();
+    _attendance = context.read<AttendanceProvider>();
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+  }
+
+  @override
+  void dispose() {
+    // Leaving the roster on purpose closes the session; killing the app does not,
+    // so the next launch reopens it.
+    _attendance.clearSavedSession();
+    super.dispose();
   }
 
   String? get _token => context.read<AuthProvider>().token;
@@ -33,7 +46,7 @@ class _RosterScreenState extends State<RosterScreen> {
     final token = _token;
     if (token == null) return;
     final attendance = context.read<AttendanceProvider>();
-    await attendance.loadRoster(token, widget.course);
+    await attendance.loadRoster(token, widget.course, resumeDate: widget.resumeDate);
     await attendance.loadFeatures(token);
   }
 
@@ -203,6 +216,17 @@ class _RosterScreenState extends State<RosterScreen> {
               ? Center(child: Text(attendance.error!))
               : Column(
                   children: [
+                    if (attendance.isOffline)
+                      Container(
+                        width: double.infinity,
+                        color: Colors.red.shade50,
+                        padding: const EdgeInsets.all(10),
+                        child: Text(
+                          'Offline - showing your last saved progress. Marks are still being saved; Submit needs a connection.',
+                          style: TextStyle(color: Colors.red.shade700, fontSize: 12.5, fontWeight: FontWeight.w600),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
                     if (attendance.sessionStatus == 'submitted')
                       Container(
                         width: double.infinity,
@@ -280,7 +304,10 @@ class _RosterScreenState extends State<RosterScreen> {
                                   student: student,
                                   quizMaxMark: quizMaxMark,
                                   unverified: attendance.unverifiedStudentIds.contains(student.id),
-                                  onChanged: () => setState(() {}),
+                                  onChanged: () {
+                                    setState(() {});
+                                    attendance.persistNow();
+                                  },
                                 );
                               },
                             ),

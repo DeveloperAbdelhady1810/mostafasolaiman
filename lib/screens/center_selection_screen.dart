@@ -4,6 +4,7 @@ import '../models/center.dart';
 import '../providers/attendance_provider.dart';
 import '../providers/auth_provider.dart';
 import 'course_list_screen.dart';
+import 'roster_screen.dart';
 import 'zoom_home_screen.dart';
 
 class CenterSelectionScreen extends StatefulWidget {
@@ -17,7 +18,25 @@ class _CenterSelectionScreenState extends State<CenterSelectionScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Reopen the saved session first (it comes from the phone, so it is instant even offline);
+      // the center list refreshes behind it.
+      await _reopenSavedSession();
+      if (mounted) await _load();
+    });
+  }
+
+  bool _restoreTried = false;
+
+  /// The app was closed with a session open: go straight back into it (offline too).
+  Future<void> _reopenSavedSession() async {
+    if (_restoreTried || !mounted) return;
+    _restoreTried = true;
+    final saved = await context.read<AttendanceProvider>().restoreSavedSession();
+    if (saved == null || !mounted) return;
+    final navigator = Navigator.of(context);
+    navigator.push(MaterialPageRoute(builder: (_) => const CourseListScreen()));
+    navigator.push(MaterialPageRoute(builder: (_) => RosterScreen(course: saved.course, resumeDate: saved.date)));
   }
 
   Future<void> _load() async {
@@ -54,7 +73,10 @@ class _CenterSelectionScreenState extends State<CenterSelectionScreen> {
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'Sign out',
-            onPressed: () => auth.logout(),
+            onPressed: () {
+              attendance.clearSavedSession();
+              auth.logout();
+            },
           ),
         ],
       ),
