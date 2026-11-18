@@ -26,7 +26,7 @@ class _Api extends ApiClient {
   }
 
   @override
-  Future<dynamic> post(String path, {String? token, Map<String, dynamic>? body}) async {
+  Future<dynamic> post(String path, {String? token, Map<String, dynamic>? body, Duration? timeout}) async {
     if (!online) throw const SocketException('offline');
     submitted = body;
     return {'summary': {}};

@@ -86,7 +86,7 @@ void main() {
     await tester.tap(find.text('Submit').last);
     await _pump(tester, 15);
     expect(body!['records'], [
-      {'student_id': 11, 'status': 'present', 'homework_done': null, 'quiz_mark': null}
+      {'student_id': 11, 'status': 'present', 'homework_done': true, 'quiz_mark': null}
     ]);
   });
 
