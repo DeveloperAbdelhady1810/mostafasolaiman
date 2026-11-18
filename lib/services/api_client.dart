@@ -64,12 +64,14 @@ class ApiClient {
     return _decode(response);
   }
 
-  Future<dynamic> post(String path, {String? token, Map<String, dynamic>? body}) async {
-    final response = await _client.post(
+  Future<dynamic> post(String path, {String? token, Map<String, dynamic>? body, Duration? timeout}) async {
+    var request = _client.post(
       _uri(path),
       headers: _headers(token),
       body: body != null ? jsonEncode(body) : null,
     );
+    if (timeout != null) request = request.timeout(timeout);
+    final response = await request;
     return _decode(response);
   }
 

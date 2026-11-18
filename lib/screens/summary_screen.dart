@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import '../services/api_client.dart';
 import 'raqmee_send_screen.dart';
@@ -47,7 +49,7 @@ class SummaryScreen extends StatelessWidget {
           return (d['templates'] as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
         },
         sendCampaign: ({required templateId, required sessionKey, required title, required recipients, required context, required variables}) async {
-          final d = await api.post('/assistant/whatsapp/campaign', token: token, body: {
+          return _postCampaignResilient(api, token, {
             'template_id': templateId,
             'session_key': sessionKey,
             'title': title,
@@ -55,7 +57,6 @@ class SummaryScreen extends StatelessWidget {
             'context': context,
             'variables': variables,
           });
-          return Map<String, dynamic>.from(d as Map);
         },
         sendPerson: ({required templateId, required senderId, required sessionKey, required phone, required student, required context, required variables}) async {
           await api.post('/assistant/whatsapp/send-one', token: token, body: {
@@ -158,4 +159,28 @@ class _StatTile extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Posts the campaign request and survives a slow server: the server builds the campaigns even if the
+/// phone gives up waiting, and re-sending the same request is safe (same campaigns are never created or
+/// started twice). So a timeout or "still busy" answer is retried instead of shown as an error.
+Future<Map<String, dynamic>> _postCampaignResilient(ApiClient api, String? token, Map<String, dynamic> body) async {
+  Object? lastError;
+  for (var attempt = 0; attempt < 8; attempt++) {
+    try {
+      final d = await api.post('/assistant/whatsapp/campaign', token: token, timeout: const Duration(minutes: 3), body: body);
+      final m = Map<String, dynamic>.from(d as Map);
+      if (m['busy'] == true) {
+        await Future.delayed(const Duration(seconds: 10));
+        continue;
+      }
+      return m;
+    } on TimeoutException catch (e) {
+      lastError = e;
+    } on SocketException catch (e) {
+      lastError = e;
+    }
+    await Future.delayed(const Duration(seconds: 8));
+  }
+  throw Exception('The server is still preparing the messages (${lastError ?? 'busy'}). Wait a minute, then tap Send again - campaigns already created are not duplicated.');
 }

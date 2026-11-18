@@ -75,8 +75,7 @@ class StudentTile extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Checkbox(
-                          tristate: true,
-                          value: student.homeworkDone,
+                          value: student.homeworkDone ?? false,
                           onChanged: (value) {
                             student.homeworkDone = value;
                             onChanged();

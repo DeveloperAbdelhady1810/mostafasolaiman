@@ -353,6 +353,7 @@ class _RaqmeeSendScreenState extends State<RaqmeeSendScreen> {
             'date': widget.date,
             'course': widget.courseTitle,
             'center': widget.centerName ?? '',
+            'lang': t.language,
           },
           variables: vars,
         );
@@ -394,6 +395,7 @@ class _RaqmeeSendScreenState extends State<RaqmeeSendScreen> {
           'date': widget.date,
           'course': widget.courseTitle,
           'center': widget.centerName ?? '',
+          'lang': t.language,
         },
         variables: [
           for (final v in _customVars)
