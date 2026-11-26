@@ -161,26 +161,50 @@ class _StatTile extends StatelessWidget {
   }
 }
 
-/// Posts the campaign request and survives a slow server: the server builds the campaigns even if the
-/// phone gives up waiting, and re-sending the same request is safe (same campaigns are never created or
-/// started twice). So a timeout or "still busy" answer is retried instead of shown as an error.
+/// Asks the server to send the WhatsApp campaigns IN THE BACKGROUND and then only watches its progress, so a slow
+/// provider can never time the phone out. The server keeps retrying until every campaign is created and started
+/// (and never creates one twice), so this just waits for "done". An older server that has no background mode
+/// answers with the finished result straight away, which is returned as is.
 Future<Map<String, dynamic>> _postCampaignResilient(ApiClient api, String? token, Map<String, dynamic> body) async {
   Object? lastError;
-  for (var attempt = 0; attempt < 8; attempt++) {
+  Map<String, dynamic>? queued;
+  for (var attempt = 0; attempt < 6 && queued == null; attempt++) {
     try {
-      final d = await api.post('/assistant/whatsapp/campaign', token: token, timeout: const Duration(minutes: 3), body: body);
+      final d = await api.post('/assistant/whatsapp/campaign', token: token, timeout: const Duration(seconds: 60), body: {...body, 'async': true});
       final m = Map<String, dynamic>.from(d as Map);
       if (m['busy'] == true) {
-        await Future.delayed(const Duration(seconds: 10));
+        await Future.delayed(const Duration(seconds: 5));
         continue;
       }
-      return m;
+      if (m['queued'] != true) return m;
+      queued = m;
     } on TimeoutException catch (e) {
       lastError = e;
+      await Future.delayed(const Duration(seconds: 5));
     } on SocketException catch (e) {
       lastError = e;
+      await Future.delayed(const Duration(seconds: 5));
     }
-    await Future.delayed(const Duration(seconds: 8));
   }
-  throw Exception('The server is still preparing the messages (${lastError ?? 'busy'}). Wait a minute, then tap Send again - campaigns already created are not duplicated.');
+  if (queued == null) {
+    throw Exception('Could not reach the server (${lastError ?? 'busy'}). Check the connection and tap Send again - nothing was sent twice.');
+  }
+
+  // Poll up to ~30 minutes. A dropped connection or a slow answer here is not an error: just ask again.
+  for (var i = 0; i < 360; i++) {
+    await Future.delayed(const Duration(seconds: 5));
+    Map<String, dynamic>? s;
+    try {
+      final d = await api.get('/assistant/whatsapp/send-status/${queued['job']}', token: token);
+      s = Map<String, dynamic>.from(d as Map);
+    } catch (_) {
+      // dropped connection / slow answer / server hiccup: not an error, just ask again
+    }
+    if (s == null) continue;
+    if (s['status'] == 'done') return {...queued, ...s};
+    if (s['status'] == 'failed') {
+      throw Exception('The server could not send the messages: ${s['error'] ?? 'unknown error'}. Tap Send again to retry.');
+    }
+  }
+  throw Exception('The server is still sending in the background. Open this screen again in a few minutes - nothing is lost or duplicated.');
 }
