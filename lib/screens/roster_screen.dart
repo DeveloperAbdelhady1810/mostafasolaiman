@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/course.dart';
+import '../models/roster_student.dart';
 import '../providers/attendance_provider.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/student_tile.dart';
@@ -23,6 +24,8 @@ class RosterScreen extends StatefulWidget {
 
 class _RosterScreenState extends State<RosterScreen> {
   bool _submitting = false;
+  final TextEditingController _searchCtl = TextEditingController();
+  String _query = '';
   late final AttendanceProvider _attendance;
 
   @override
@@ -34,6 +37,7 @@ class _RosterScreenState extends State<RosterScreen> {
 
   @override
   void dispose() {
+    _searchCtl.dispose();
     // Leaving the roster on purpose closes the session; killing the app does not,
     // so the next launch reopens it.
     _attendance.clearSavedSession();
@@ -292,25 +296,63 @@ class _RosterScreenState extends State<RosterScreen> {
                           ),
                         ),
                       ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                      child: TextField(
+                        controller: _searchCtl,
+                        onChanged: (v) => setState(() => _query = v.trim()),
+                        decoration: InputDecoration(
+                          hintText: 'Search name, phone or student number',
+                          prefixIcon: const Icon(Icons.search),
+                          isDense: true,
+                          border: const OutlineInputBorder(),
+                          suffixIcon: _query.isEmpty
+                              ? null
+                              : IconButton(
+                                  icon: const Icon(Icons.clear),
+                                  onPressed: () {
+                                    _searchCtl.clear();
+                                    setState(() => _query = '');
+                                  },
+                                ),
+                        ),
+                      ),
+                    ),
                     Expanded(
                       child: attendance.roster.isEmpty
                           ? const Center(child: Text('No students expected for this course/center yet.'))
-                          : ListView.builder(
-                              padding: const EdgeInsets.symmetric(horizontal: 12),
-                              itemCount: attendance.roster.length,
-                              itemBuilder: (context, index) {
-                                final student = attendance.roster[index];
-                                return StudentTile(
-                                  student: student,
-                                  quizMaxMark: quizMaxMark,
-                                  unverified: attendance.unverifiedStudentIds.contains(student.id),
-                                  onChanged: () {
-                                    setState(() {});
-                                    attendance.persistNow();
-                                  },
-                                );
-                              },
-                            ),
+                          : Builder(builder: (context) {
+                              // Present students first (original order kept inside each group), then the search filter.
+                              final q = _query.toLowerCase();
+                              bool matches(RosterStudent s) =>
+                                  q.isEmpty ||
+                                  s.name.toLowerCase().contains(q) ||
+                                  (s.phone ?? '').contains(q) ||
+                                  (s.parentPhone ?? '').contains(q) ||
+                                  (s.studentNumber?.toString() ?? '').contains(q);
+                              final shown = [
+                                ...attendance.roster.where((s) => s.status == 'present' && matches(s)),
+                                ...attendance.roster.where((s) => s.status != 'present' && matches(s)),
+                              ];
+                              if (shown.isEmpty) return const Center(child: Text('No student matches your search.'));
+                              return ListView.builder(
+                                padding: const EdgeInsets.symmetric(horizontal: 12),
+                                itemCount: shown.length,
+                                itemBuilder: (context, index) {
+                                  final student = shown[index];
+                                  return StudentTile(
+                                    key: ValueKey(student.id),
+                                    student: student,
+                                    quizMaxMark: quizMaxMark,
+                                    unverified: attendance.unverifiedStudentIds.contains(student.id),
+                                    onChanged: () {
+                                      setState(() {});
+                                      attendance.persistNow();
+                                    },
+                                  );
+                                },
+                              );
+                            }),
                     ),
                     SafeArea(
                       top: false,
